@@ -6,6 +6,7 @@ module "network" {
   subnet_cidr     = "${var.subnet_cidr}"
   cluster_name    = "${var.cluster_name}"
   dns_nameservers = "${var.dns_nameservers}"
+  use_neutron     = "${var.use_neutron}"
 }
 
 module "ips" {
@@ -50,7 +51,10 @@ module "compute" {
   k8s_master_fips                              = "${module.ips.k8s_master_fips}"
   k8s_node_fips                                = "${module.ips.k8s_node_fips}"
   bastion_fips                                 = "${module.ips.bastion_fips}"
+  bastion_allowed_remote_ips                   = "${var.bastion_allowed_remote_ips}"
   supplementary_master_groups                  = "${var.supplementary_master_groups}"
+  supplementary_node_groups                    = "${var.supplementary_node_groups}"
+  worker_allowed_ports                         = "${var.worker_allowed_ports}"
 
   network_id = "${module.network.router_id}"
 }

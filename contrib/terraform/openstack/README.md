@@ -8,6 +8,23 @@ Openstack.
 This will install a Kubernetes cluster on an Openstack Cloud. It should work on
 most modern installs of OpenStack that support the basic services.
 
+### Known compatible public clouds
+- [Auro](https://auro.io/)
+- [BetaCloud](https://www.betacloud.io/)
+- [CityCloud](https://www.citycloud.com/)
+- [DreamHost](https://www.dreamhost.com/cloud/computing/)
+- [ELASTX](https://elastx.se/)
+- [EnterCloudSuite](https://www.entercloudsuite.com/)
+- [FugaCloud](https://fuga.cloud/)
+- [OVH](https://www.ovh.com/)
+- [Rackspace](https://www.rackspace.com/)
+- [Ultimum](https://ultimum.io/)
+- [VexxHost](https://vexxhost.com/)
+- [Zetta](https://www.zetta.io/)
+
+### Known incompatible public clouds
+- T-Systems / Open Telekom Cloud: requires `wait_until_associated`
+
 ## Approach
 The terraform configuration inspects variables found in
 [variables.tf](variables.tf) to create resources in your OpenStack cluster.
@@ -223,6 +240,9 @@ For your cluster, edit `inventory/$CLUSTER/cluster.tf`.
 |`number_of_gfs_nodes_no_floating_ip` | Number of gluster servers to provision. |
 | `gfs_volume_size_in_gb` | Size of the non-ephemeral volumes to be attached to store the GlusterFS bricks |
 |`supplementary_master_groups` | To add ansible groups to the masters, such as `kube-node` for tainting them as nodes, empty by default. |
+|`supplementary_node_groups` | To add ansible groups to the nodes, such as `kube-ingress` for running ingress controller pods, empty by default. |
+|`bastion_allowed_remote_ips` | List of CIDR allowed to initiate a SSH connection, `["0.0.0.0/0"]` by default |
+|`worker_allowed_ports` | List of ports to open on worker nodes, `[{ "protocol" = "tcp", "port_range_min" = 30000, "port_range_max" = 32767, "remote_ip_prefix" = "0.0.0.0/0"}]` by default |
 
 #### Terraform state files
 
@@ -258,7 +278,7 @@ $ terraform apply -var-file=cluster.tf ../../contrib/terraform/openstack
 
 if you chose to create a bastion host, this script will create
 `contrib/terraform/openstack/k8s-cluster.yml` with an ssh command for Ansible to
-be able to access your machines tunneling  through the bastion's IP address. If
+be able to access your machines tunneling through the bastion's IP address. If
 you want to manually handle the ssh tunneling to these machines, please delete
 or move that file. If you want to use this, just leave it there, as ansible will
 pick it up automatically.
@@ -339,11 +359,6 @@ If it fails try to connect manually via SSH.  It could be something as simple as
 ### Configure cluster variables
 
 Edit `inventory/$CLUSTER/group_vars/all.yml`:
-- Set variable **bootstrap_os** appropriately for your desired image:
-```
-# Valid bootstrap options (required): ubuntu, coreos, centos, none
-bootstrap_os: coreos
-```
 - **bin_dir**:
 ```
 # Directory where the binaries will be installed
@@ -421,14 +436,6 @@ $ kubectl config use-context default-system
 ```
 kubectl version
 ```
-
-If you are using floating ip addresses then you may get this error:
-```
-Unable to connect to the server: x509: certificate is valid for 10.0.0.6, 10.0.0.6, 10.233.0.1, 127.0.0.1, not 132.249.238.25
-```
-
-You can tell kubectl to ignore this condition by adding the
-`--insecure-skip-tls-verify` option.
 
 ## GlusterFS
 GlusterFS is not deployed by the standard`cluster.yml` playbook, see the
