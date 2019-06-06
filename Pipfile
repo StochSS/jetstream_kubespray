@@ -1,0 +1,16 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+ansible = "<2.8.0,!=2.7.0,>=2.5.0"
+netaddr = "*"
+pbr = ">=1.6"
+hvac = "*"
+Jinja2 = ">=2.9.6"
+
+[requires]
+python_version = "3.7"
