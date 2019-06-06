@@ -38,14 +38,17 @@ export CLUSTER=$USER
 cp -LRp inventory/stochss-dev inventory/$CLUSTER
 ```
 
-- Open inventory/$CLUSTER/cluster.tf in a text editor
-  - Change the network name to something unique, like the expanded form of $CLUSTER_network
+- Generate a keypair with `ssh-keygen` that you'll use to access the master server
+
+- Open `inventory/$CLUSTER/cluster.tf` in a text editor
+  - Change the value of `public_key_path` to match the key you just generated
+  - Change the network name to something unique, like the expanded form of `$CLUSTER_network`
   - Run this command to get a list of images enabled for the OpenStack API: `openstack image list | grep "JS-API"`
   - Verify the value of `image` in `cluster.tf` shows up in the result of the previous command. If it doesn't, replace the value of `image` in `cluster.tf` with the most similar image name in the list of returned results from the `image list` command (a newer CentOS 7 image). The image MUST have 'JS-API-Featured' in the name.
 
 - Verify that the `public` network is available: `openstack network list`.
 
-- Initialize Terraform (from inventory/$CLUSTER/)
+- Initialize Terraform (from `inventory/$CLUSTER/`)
 
 ```bash
 bash terraform_init.sh
@@ -67,7 +70,7 @@ openstack server list
 openstack network list
 ```
 
-- If you ever want to destroy EVERYTHING:
+- If you ever want to destroy EVERYTHING, run the following command. This script may need to be refactored to only destroy cluster-specific resources, so take care.
 ```bash
 # Beware!
 bash terraform_destroy.sh
@@ -125,7 +128,10 @@ If the playbook fails with "cannot lock the administrative directory", it means 
 When the playbook finishes, you should have a kubernetes cluster setup on your openstack servers. Test it with:
 ```bash
 ssh centos@IP
-sudo -i # switch to root
+sudo -i
+# Add /usr/local/bin to PATH so you can use kubectl
+echo "export PATH=$PATH:/usr/local/bin" >> .bashrc
+source .bashrc
 kubectl get pods --all-namespaces
 ```
 
@@ -143,4 +149,4 @@ ln -s ../../../inventory/$CLUSTER/group-vars
 ansible-playbook -b --become-user=root -i inventory/$CLUSTER/hosts ./contrib/network-storage/glusterfs/glusterfs.yml
 ```
 
-To be continued...
+- Todo: setup heketi management server for glusterfs
