@@ -18,25 +18,16 @@ number_of_etcd = 0
 
 # masters
 number_of_k8s_masters = 1
-number_of_k8s_masters_no_etcd = 0
-number_of_k8s_masters_no_floating_ip = 0
-number_of_k8s_masters_no_floating_ip_no_etcd = 0
 flavor_k8s_master = "2"
 
 # nodes
-number_of_k8s_nodes = 0
-number_of_k8s_nodes_no_floating_ip = 1
+#number_of_k8s_nodes = 0
+number_of_k8s_nodes_no_floating_ip = 3
 flavor_k8s_node = "2"
 
 # GlusterFS
-# either 0 or more than one
-number_of_gfs_nodes_no_floating_ip = 2
-gfs_volume_size_in_gb = 200
+gfs_volume_size_in_gb = 10
 # Container Linux does not support GlusterFS
-image_gfs = "JS-API-Featured-CentOS7-May-20-2019"
-# May be different from other nodes
-ssh_user_gfs = "centos"
-flavor_gfs_node = 2
 disk_volume_device_1 = "/dev/sdb"
 
 # networking

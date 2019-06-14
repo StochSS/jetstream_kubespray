@@ -3,6 +3,51 @@ resource "openstack_compute_keypair_v2" "k8s" {
   public_key = "${chomp(file(var.public_key_path))}"
 }
 
+resource "openstack_networking_secgroup_v2" "gfs_server" {
+  name = "${var.cluster_name}-gfs-server"
+  description = "${var.cluster_name} - GlusterFS"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "gfs_server_sshd" {
+  direction = "ingress"
+  ethertype = "IPv4"
+  protocol = "tcp"
+  port_range_min = "2222"
+  port_range_max = "2222"
+  remote_ip_prefix = "0.0.0.0/0"
+  security_group_id = "${openstack_networking_secgroup_v2.gfs_server.id}"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "gfs_server_daemon" {
+  direction = "ingress"
+  ethertype = "IPv4"
+  protocol = "tcp"
+  port_range_min = "24007"
+  port_range_max = "24007"
+  remote_ip_prefix = "0.0.0.0/0"
+  security_group_id = "${openstack_networking_secgroup_v2.gfs_server.id}"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "gfs_server_mgmt" {
+  direction = "ingress"
+  ethertype = "IPv4"
+  protocol = "tcp"
+  port_range_min = "24008"
+  port_range_max = "24008"
+  remote_ip_prefix = "0.0.0.0/0"
+  security_group_id = "${openstack_networking_secgroup_v2.gfs_server.id}"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "gfs_server_bricks" {
+  direction = "ingress"
+  ethertype = "IPv4"
+  protocol = "tcp"
+  port_range_min = "49152"
+  port_range_max = "49251"
+  remote_ip_prefix = "0.0.0.0/0"
+  security_group_id = "${openstack_networking_secgroup_v2.gfs_server.id}"
+}
+
 resource "openstack_networking_secgroup_v2" "k8s_master" {
   name        = "${var.cluster_name}-k8s-master"
   description = "${var.cluster_name} - Kubernetes Master"
@@ -133,6 +178,7 @@ resource "openstack_compute_instance_v2" "k8s_master" {
   security_groups = ["${openstack_networking_secgroup_v2.k8s_master.name}",
     "${openstack_networking_secgroup_v2.bastion.name}",
     "${openstack_networking_secgroup_v2.k8s.name}",
+    "${openstack_networking_secgroup_v2.gfs_server.name}",
     "default",
   ]
 
@@ -212,6 +258,7 @@ resource "openstack_compute_instance_v2" "k8s_master_no_floating_ip" {
   }
 
   security_groups = ["${openstack_networking_secgroup_v2.k8s_master.name}",
+    "${openstack_networking_secgroup_v2.gfs_server.name}",
     "${openstack_networking_secgroup_v2.k8s.name}",
     "default",
   ]
@@ -238,6 +285,7 @@ resource "openstack_compute_instance_v2" "k8s_master_no_floating_ip_no_etcd" {
 
   security_groups = ["${openstack_networking_secgroup_v2.k8s_master.name}",
     "${openstack_networking_secgroup_v2.k8s.name}",
+    "${openstack_networking_secgroup_v2.gfs_server.name}",
   ]
 
   metadata = {
@@ -263,6 +311,7 @@ resource "openstack_compute_instance_v2" "k8s_node" {
   security_groups = ["${openstack_networking_secgroup_v2.k8s.name}",
     "${openstack_networking_secgroup_v2.bastion.name}",
     "${openstack_networking_secgroup_v2.worker.name}",
+    "${openstack_networking_secgroup_v2.gfs_server.name}",
     "default",
   ]
 
@@ -292,6 +341,7 @@ resource "openstack_compute_instance_v2" "k8s_node_no_floating_ip" {
 
   security_groups = ["${openstack_networking_secgroup_v2.k8s.name}",
     "${openstack_networking_secgroup_v2.worker.name}",
+    "${openstack_networking_secgroup_v2.gfs_server.name}",
     "default",
   ]
 
@@ -323,37 +373,13 @@ resource "openstack_compute_floatingip_associate_v2" "k8s_node" {
 
 resource "openstack_blockstorage_volume_v2" "glusterfs_volume" {
   name        = "${var.cluster_name}-glusterfs_volume-${count.index+1}"
-  count       = "${var.number_of_gfs_nodes_no_floating_ip}"
+  count       = "${var.number_of_k8s_nodes_no_floating_ip}"
   description = "Non-ephemeral volume for GlusterFS"
   size        = "${var.gfs_volume_size_in_gb}"
 }
 
-resource "openstack_compute_instance_v2" "glusterfs_node_no_floating_ip" {
-  name       = "${var.cluster_name}-gfs-node-nf-${count.index+1}"
-  count      = "${var.number_of_gfs_nodes_no_floating_ip}"
-  availability_zone = "${element(var.az_list, count.index)}"
-  image_name = "${var.image_gfs}"
-  flavor_id  = "${var.flavor_gfs_node}"
-  key_pair   = "${openstack_compute_keypair_v2.k8s.name}"
-
-  network {
-    name = "${var.network_name}"
-  }
-
-  security_groups = ["${openstack_networking_secgroup_v2.k8s.name}",
-    "default",
-  ]
-
-  metadata = {
-    ssh_user         = "${var.ssh_user_gfs}"
-    kubespray_groups = "gfs-cluster,network-storage,no-floating"
-    depends_on       = "${var.network_id}"
-  }
-
-}
-
 resource "openstack_compute_volume_attach_v2" "glusterfs_volume" {
-  count       = "${var.number_of_gfs_nodes_no_floating_ip}"
-  instance_id = "${element(openstack_compute_instance_v2.glusterfs_node_no_floating_ip.*.id, count.index)}"
+  count       = "${var.number_of_k8s_nodes_no_floating_ip}"
+  instance_id = "${element(openstack_compute_instance_v2.k8s_node_no_floating_ip.*.id, count.index)}"
   volume_id   = "${element(openstack_blockstorage_volume_v2.glusterfs_volume.*.id, count.index)}"
 }

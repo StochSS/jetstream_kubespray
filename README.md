@@ -128,14 +128,19 @@ If the playbook fails with "cannot lock the administrative directory", it means 
 When the playbook finishes, you should have a kubernetes cluster setup on your openstack servers. Test it with:
 ```bash
 ssh centos@IP
-sudo -i
 # Add /usr/local/bin to PATH so you can use kubectl
-echo "export PATH=$PATH:/usr/local/bin" >> .bashrc
-source .bashrc
+sudo echo "export PATH=$PATH:/usr/local/bin" >> /root/.bashrc
+sudo su root
+echo "export PATH=$PATH:/usr/local/bin" >> ~/.bashrc
+source ~/.bashrc
 kubectl get pods --all-namespaces
 ```
 
-## Install GlusterFS
+## Install GlusterFS/Heketi
+
+- On k8s-master
+
+We will use [gluster-kubernetes](https://github.com/gluster/gluster-kubernetes) to deploy GlusterFS with Heketi
 
 - Fix a symlink so glusterfs refers to your cluster config
 ```bash
@@ -147,6 +152,220 @@ ln -s ../../../inventory/$CLUSTER/group-vars
 - Provision the glusterfs nodes (see ./contrib/network-storage/glusterfs for details)
 ```bash
 ansible-playbook -b --become-user=root -i inventory/$CLUSTER/hosts ./contrib/network-storage/glusterfs/glusterfs.yml
+
+- Setup gluster-kubernetes
+
+git clone https://github.com/gluster/gluster-kubernetes
+
+- Setup topology file
+
+Replace "manage" and "storage" fields with the hostnames and IP addresses of the k8s-node servers
+
+cd gluster-kubernetes/deploy
+mv topology.json.sample topology.json
+
+EDIT topology.json
+
+{
+  "clusters": [
+    {
+      "nodes": [
+        {
+          "node": {
+            "hostnames": {
+              "manage": [
+                "stochss-dev-k8s-node-nf-1"
+              ],
+              "storage": [
+                "10.0.0.13"
+              ]
+            },
+            "zone": 1
+          },
+          "devices": [
+            "/dev/sdb"
+          ]
+        },
+        {
+          "node": {
+            "hostnames": {
+              "manage": [
+                "stochss-dev-k8s-node-nf-2"
+              ],
+              "storage": [
+                "10.0.0.10"
+              ]
+            },
+            "zone": 1
+          },
+          "devices": [
+            "/dev/sdb"
+          ]
+        },
+        {
+          "node": {
+            "hostnames": {
+              "manage": [
+                "stochss-dev-k8s-node-nf-3"
+              ],
+              "storage": [
+                "10.0.0.8"
+              ]
+            },
+            "zone": 1
+          },
+          "devices": [
+            "/dev/sdb"
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+END Edit topology.json
+
+- Run the deploy script with the modified topology.json
+
+./gk-deploy -g
+
+- Create a StorageClass for dynamic provisioning
+
+EDIT gluster-storage-class.yml
+
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: glusterfs-storage
+provisioner: kubernetes.io/glusterfs
+parameters:
+  resturl: http://10.233.66.6:8080
+  restuser: "heketi"
+  restuserkey: "My Heketi Key"
+
+END EDIT
+
+- Create the storage class on the cluster
+
+kubectl create -f gluster-storage-class.yml
+
+
+- Setup config.template.yaml, secret.template.yaml, and setup_binderhub script from git:stochss/minikube
+
+config.template.yaml 
+
+config:
+  BinderHub:
+    use_registry: true
+    image_prefix: DOCKERID/binder-
+    hub_url: dev.stochss.org/jh
+    build_namespace: binder
+
+ingress:
+  enabled: true
+  hosts:
+    - dev.stochss.org
+
+jupyterhub:
+  hub:
+    baseUrl: /jh
+  ingress:
+    enabled: true
+    hosts:
+      - dev.stochss.org
+  singleuser:
+    memory:
+      limit: 200M
+      guarantee: 200M
+    cpu:
+      limit: .2
+      guarantee: .2
+    storage:
+      capacity: 1Gi
+      dynamic:
+        storageClass: glusterfs-storage
+        pvcNameTemplate: claim-{username}{servername}
+        volumeNameTemplate: volume-{username}{servername}
+
+
+--- END config.template.yaml ---
+
+secret.template.yaml 
+
+jupyterhub:
+  hub:
+    services:
+      binder:
+        apiToken: BINDERTOKEN
+  proxy:
+    secretToken: PROXYTOKEN
+registry:
+  username: DOCKERID
+  password: DOCKERPASSWD
+
+--- END secret.template.yaml ---
+
+
+- Modify `bhug_conf_gen` to only generate config files
+
+`bhub_conf_gen` 
+
+```
+#!/bin/bash
+
+echo "Generating tokens..."
+BINDER_TOKEN=$(openssl rand -hex 32)
+PROXY_TOKEN=$(openssl rand -hex 32)
+
+# Get Docker Hub credentials from the user
+read -p "What is your docker hub username? " DOCKER_ID
+
+while true
+do
+  read -s -p "What is your docker hub password? " DOCKER_PASSWD
+  echo
+  read -s -p "Enter your password again: " PASSWD_VERIFY
+  echo
+
+  if [[ "$DOCKER_PASSWD" != "$PASSWD_VERIFY" ]]; then
+    echo "Passwords don't match, let's try that again..."
+  else
+    break
+  fi
+done
+
+# Create secret.yaml
+echo "Creating secret.yaml..."
+cat secret.template.yaml | \
+  sed -e "s/BINDERTOKEN/$BINDER_TOKEN/g" \
+      -e "s/PROXYTOKEN/$PROXY_TOKEN/g" \
+      -e "s/DOCKERID/$DOCKER_ID/g" \
+      -e "s/DOCKERPASSWD/$DOCKER_PASSWD/g" \
+  | cat - > secret.yaml
+
+# Create config.yaml
+echo "Creating config.yaml..."
+cat config.template.yaml | \
+  sed -e "s/DOCKERID/$DOCKER_ID/g" \
+  | cat - > config.yaml
 ```
 
-- Todo: setup heketi management server for glusterfs
+
+- Set `bhub_conf_gen` to executable
+
+```chmod +x bhub_conf_gen```
+
+- Add the jupyterhub helm repo (for jupyterhub and binderhub)
+
+helm repo add jupyterhub https://jupyterhub.github.io/helm-chart
+helm repo update
+
+helm install jupyterhub/binderhub --version=0.2.0-908c443   --name=binder --namespace=binder -f secret.yaml -f config.yaml
+
+
+
+
+References:
+
+Thanks to Andrea Zonca for this [excellent guide](https://zonca.github.io/2018/09/kubernetes-jetstream-kubespray.html).
+
